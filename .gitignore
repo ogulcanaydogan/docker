@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Environment files (keep examples)
+.env
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Docker
+*.log
+
+# Certificates (generated)
+certs/
+*.pem
+*.crt
+*.key
+*.p12
+!ssl-gen/
+
+# Backups
+backups/
