@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Redis UI</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        h1 { color: #dc3545; margin-bottom: 20px; }
+        .info-bar { background: #16213e; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 30px; }
+        .info-item { text-align: center; }
+        .info-item .value { font-size: 24px; font-weight: bold; color: #dc3545; }
+        .info-item .label { font-size: 12px; color: #888; }
+        .search-bar { display: flex; gap: 10px; margin-bottom: 20px; }
+        input, button { padding: 10px 15px; border: none; border-radius: 5px; font-size: 14px; }
+        input { background: #16213e; color: #eee; flex: 1; }
+        button { background: #dc3545; color: white; cursor: pointer; }
+        button:hover { background: #c82333; }
+        .keys-list { background: #16213e; border-radius: 8px; max-height: 300px; overflow-y: auto; }
+        .key-item { padding: 10px 15px; border-bottom: 1px solid #1a1a2e; cursor: pointer; }
+        .key-item:hover { background: #1a1a2e; }
+        .key-detail { background: #16213e; padding: 20px; border-radius: 8px; margin-top: 20px; }
+        .key-detail h3 { margin-bottom: 15px; }
+        .key-meta { display: flex; gap: 20px; margin-bottom: 15px; color: #888; }
+        pre { background: #1a1a2e; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        .actions { margin-top: 15px; }
+        .delete-btn { background: #6c757d; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Redis UI</h1>
+
+        <div class="info-bar" id="info-bar">
+            <div class="info-item"><div class="value" id="info-keys">-</div><div class="label">Total Keys</div></div>
+            <div class="info-item"><div class="value" id="info-memory">-</div><div class="label">Memory</div></div>
+            <div class="info-item"><div class="value" id="info-clients">-</div><div class="label">Clients</div></div>
+            <div class="info-item"><div class="value" id="info-version">-</div><div class="label">Version</div></div>
+        </div>
+
+        <div class="search-bar">
+            <input type="text" id="pattern" placeholder="Search pattern (e.g., user:*)" value="*">
+            <button onclick="searchKeys()">Search</button>
+            <button onclick="showAddForm()">Add Key</button>
+        </div>
+
+        <div class="keys-list" id="keys-list"></div>
+        <div class="key-detail" id="key-detail" style="display:none"></div>
+    </div>
+
+    <script>
+        async function loadInfo() {
+            const res = await fetch('/api/info');
+            const data = await res.json();
+            document.getElementById('info-keys').textContent = data.total_keys;
+            document.getElementById('info-memory').textContent = data.used_memory_human;
+            document.getElementById('info-clients').textContent = data.connected_clients;
+            document.getElementById('info-version').textContent = data.version;
+        }
+
+        async function searchKeys() {
+            const pattern = document.getElementById('pattern').value || '*';
+            const res = await fetch(`/api/keys?pattern=${encodeURIComponent(pattern)}`);
+            const data = await res.json();
+
+            const list = document.getElementById('keys-list');
+            list.innerHTML = data.keys.map(key =>
+                `<div class="key-item" onclick="showKey('${key}')">${key}</div>`
+            ).join('');
+        }
+
+        async function showKey(key) {
+            const res = await fetch(`/api/key/${encodeURIComponent(key)}`);
+            const data = await res.json();
+
+            const detail = document.getElementById('key-detail');
+            detail.style.display = 'block';
+            detail.innerHTML = `
+                <h3>${data.key}</h3>
+                <div class="key-meta">
+                    <span>Type: ${data.type}</span>
+                    <span>TTL: ${data.ttl === -1 ? 'No expiry' : data.ttl + 's'}</span>
+                </div>
+                <pre>${JSON.stringify(data.value, null, 2)}</pre>
+                <div class="actions">
+                    <button class="delete-btn" onclick="deleteKey('${data.key}')">Delete</button>
+                </div>
+            `;
+        }
+
+        async function deleteKey(key) {
+            if (!confirm(`Delete key "${key}"?`)) return;
+            await fetch(`/api/key/${encodeURIComponent(key)}`, { method: 'DELETE' });
+            document.getElementById('key-detail').style.display = 'none';
+            searchKeys();
+            loadInfo();
+        }
+
+        function showAddForm() {
+            const detail = document.getElementById('key-detail');
+            detail.style.display = 'block';
+            detail.innerHTML = `
+                <h3>Add New Key</h3>
+                <input type="text" id="new-key" placeholder="Key" style="width:100%;margin-bottom:10px">
+                <input type="text" id="new-value" placeholder="Value" style="width:100%;margin-bottom:10px">
+                <input type="number" id="new-ttl" placeholder="TTL (seconds, optional)" style="width:100%;margin-bottom:10px">
+                <button onclick="addKey()">Save</button>
+            `;
+        }
+
+        async function addKey() {
+            const key = document.getElementById('new-key').value;
+            const value = document.getElementById('new-value').value;
+            const ttl = document.getElementById('new-ttl').value;
+
+            await fetch('/api/key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key, value, ttl })
+            });
+
+            searchKeys();
+            loadInfo();
+            document.getElementById('key-detail').style.display = 'none';
+        }
+
+        loadInfo();
+        searchKeys();
+    </script>
+</body>
+</html>

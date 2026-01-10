@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MongoDB UI</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; }
+        .container { display: flex; height: 100vh; }
+        .sidebar { width: 250px; background: #16213e; padding: 20px; overflow-y: auto; }
+        .main { flex: 1; padding: 20px; overflow-y: auto; }
+        h1 { color: #4db33d; margin-bottom: 20px; font-size: 20px; }
+        h2 { margin-bottom: 15px; font-size: 16px; }
+        .db-item, .coll-item { padding: 8px 12px; cursor: pointer; border-radius: 4px; margin-bottom: 5px; }
+        .db-item:hover, .coll-item:hover { background: #1a1a2e; }
+        .db-item.active { background: #4db33d; color: #000; }
+        .coll-item.active { background: #4db33d33; }
+        .collections { margin-left: 15px; display: none; }
+        .collections.show { display: block; }
+        .toolbar { display: flex; gap: 10px; margin-bottom: 20px; }
+        input, button, textarea { padding: 10px; border: none; border-radius: 5px; font-size: 14px; }
+        input, textarea { background: #16213e; color: #eee; }
+        button { background: #4db33d; color: white; cursor: pointer; }
+        button:hover { background: #3d9c2e; }
+        .doc-list { background: #16213e; border-radius: 8px; }
+        .doc-item { padding: 15px; border-bottom: 1px solid #1a1a2e; cursor: pointer; }
+        .doc-item:hover { background: #1a1a2e; }
+        .doc-id { color: #4db33d; font-family: monospace; }
+        pre { background: #1a1a2e; padding: 15px; border-radius: 5px; overflow-x: auto; font-size: 12px; }
+        .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; }
+        .modal.show { display: flex; }
+        .modal-content { background: #16213e; padding: 20px; border-radius: 8px; width: 600px; max-height: 80vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; margin-bottom: 15px; }
+        .close { cursor: pointer; font-size: 24px; }
+        textarea { width: 100%; height: 200px; margin-bottom: 10px; font-family: monospace; }
+        .pagination { margin-top: 15px; display: flex; gap: 10px; align-items: center; }
+        .stats { color: #888; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h1>MongoDB UI</h1>
+            <div id="db-list"></div>
+        </div>
+        <div class="main">
+            <div class="toolbar">
+                <input type="text" id="query" placeholder='Query: {"name": "John"}' style="flex:1">
+                <button onclick="search()">Search</button>
+                <button onclick="showInsertModal()">Insert</button>
+            </div>
+            <div class="stats" id="stats"></div>
+            <div class="doc-list" id="doc-list"></div>
+            <div class="pagination" id="pagination"></div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Document</h3>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentDb = null;
+        let currentColl = null;
+        let currentPage = 0;
+        const pageSize = 50;
+
+        async function loadDatabases() {
+            const res = await fetch('/api/databases');
+            const data = await res.json();
+            document.getElementById('db-list').innerHTML = data.databases
+                .filter(db => !['admin', 'config', 'local'].includes(db))
+                .map(db => `<div class="db-item" onclick="selectDb('${db}')">${db}</div>`)
+                .join('');
+        }
+
+        async function selectDb(db) {
+            currentDb = db;
+            currentColl = null;
+            document.querySelectorAll('.db-item').forEach(el => el.classList.remove('active'));
+            event.target.classList.add('active');
+
+            const res = await fetch(`/api/database/${db}/collections`);
+            const data = await res.json();
+
+            const existing = event.target.nextElementSibling;
+            if (existing?.classList.contains('collections')) existing.remove();
+
+            const collList = document.createElement('div');
+            collList.className = 'collections show';
+            collList.innerHTML = data.collections.map(c =>
+                `<div class="coll-item" onclick="selectCollection('${c}'); event.stopPropagation();">${c}</div>`
+            ).join('');
+            event.target.after(collList);
+        }
+
+        async function selectCollection(coll) {
+            currentColl = coll;
+            currentPage = 0;
+            document.querySelectorAll('.coll-item').forEach(el => el.classList.remove('active'));
+            event.target.classList.add('active');
+            await loadDocuments();
+        }
+
+        async function loadDocuments() {
+            if (!currentDb || !currentColl) return;
+
+            const query = document.getElementById('query').value;
+            const skip = currentPage * pageSize;
+
+            let url = `/api/database/${currentDb}/collection/${currentColl}?limit=${pageSize}&skip=${skip}`;
+            if (query) url += `&query=${encodeURIComponent(query)}`;
+
+            const res = await fetch(url);
+            const data = await res.json();
+
+            document.getElementById('stats').textContent = `${data.total} documents`;
+            document.getElementById('doc-list').innerHTML = data.documents.map(doc => `
+                <div class="doc-item" onclick="showDocument('${doc._id.$oid || doc._id}')">
+                    <span class="doc-id">${doc._id.$oid || doc._id}</span>
+                    <pre>${JSON.stringify(doc, null, 2).substring(0, 200)}...</pre>
+                </div>
+            `).join('');
+
+            const totalPages = Math.ceil(data.total / pageSize);
+            document.getElementById('pagination').innerHTML = `
+                <button onclick="prevPage()" ${currentPage === 0 ? 'disabled' : ''}>Prev</button>
+                <span>Page ${currentPage + 1} of ${totalPages}</span>
+                <button onclick="nextPage()" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Next</button>
+            `;
+        }
+
+        function search() { currentPage = 0; loadDocuments(); }
+        function prevPage() { if (currentPage > 0) { currentPage--; loadDocuments(); } }
+        function nextPage() { currentPage++; loadDocuments(); }
+
+        async function showDocument(id) {
+            const res = await fetch(`/api/database/${currentDb}/collection/${currentColl}/${id}`);
+            const data = await res.json();
+            document.getElementById('modal-title').textContent = 'Document';
+            document.getElementById('modal-body').innerHTML = `
+                <pre>${JSON.stringify(data.document, null, 2)}</pre>
+                <button onclick="deleteDocument('${id}')" style="background:#dc3545">Delete</button>
+            `;
+            document.getElementById('modal').classList.add('show');
+        }
+
+        function showInsertModal() {
+            if (!currentDb || !currentColl) { alert('Select a collection first'); return; }
+            document.getElementById('modal-title').textContent = 'Insert Document';
+            document.getElementById('modal-body').innerHTML = `
+                <textarea id="new-doc" placeholder='{"key": "value"}'></textarea>
+                <button onclick="insertDocument()">Insert</button>
+            `;
+            document.getElementById('modal').classList.add('show');
+        }
+
+        async function insertDocument() {
+            const doc = JSON.parse(document.getElementById('new-doc').value);
+            await fetch(`/api/database/${currentDb}/collection/${currentColl}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(doc)
+            });
+            closeModal();
+            loadDocuments();
+        }
+
+        async function deleteDocument(id) {
+            if (!confirm('Delete this document?')) return;
+            await fetch(`/api/database/${currentDb}/collection/${currentColl}/${id}`, { method: 'DELETE' });
+            closeModal();
+            loadDocuments();
+        }
+
+        function closeModal() { document.getElementById('modal').classList.remove('show'); }
+
+        loadDatabases();
+    </script>
+</body>
+</html>

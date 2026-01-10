@@ -20,6 +20,17 @@ IMAGES=(
     "docker-cleanup"
     "healthcheck"
     "wait-for-it"
+    "flask-app"
+    "git-sync"
+    "cron-runner"
+    "secrets-init"
+    "s3-backup"
+    "smtp-relay"
+    "log-exporter"
+    "nginx-ssl-proxy"
+    "redis-ui"
+    "mongo-ui"
+    "volume-permissions"
 )
 
 # Note: db-toolkit is docker-compose only, no image to build
